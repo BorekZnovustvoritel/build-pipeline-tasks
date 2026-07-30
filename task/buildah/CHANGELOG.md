@@ -11,6 +11,13 @@ If that's not something you ever plan to do, consider removing this section.
 
 *Nothing yet.*
 
+## 0.11.0
+
+### Added
+
+- Added a new parameter `CONTEXTUALIZE_SBOM_BUILDER`, which enables builder-content
+  contextualization of build-time SBOMs.
+
 ## 0.10.7
 
 ### Fixed

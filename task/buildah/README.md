@@ -52,6 +52,7 @@ When prefetch-dependencies task is activated it is using its artifacts to run bu
 |BUILD_TIMESTAMP|Defines the single build time for all buildah builds in seconds since UNIX epoch. Conflicts with SOURCE_DATE_EPOCH.|""|false|
 |SOURCE_URL|The image is built from this URL.|""|false|
 |CONTEXTUALIZE_SBOM|Determines if SBOM will be contextualized.|true|false|
+|CONTEXTUALIZE_SBOM_BUILDER|Flag to enable builder content scanning for SBOM contextualization.|false|false|
 |SBOM_SKIP_VALIDATION|Flag to enable or disable SBOM validation before save. Validation is optional - use this if you are experiencing performance issues.|true|false|
 |OMIT_HISTORY|Omit build history information from the resulting image. Improves reproducibility by excluding timestamps and layer metadata.|false|false|
 |SOURCE_DATE_EPOCH|Timestamp in seconds since Unix epoch for reproducible builds. Sets image created time and SOURCE_DATE_EPOCH build arg. Conflicts with BUILD_TIMESTAMP.|""|false|
