@@ -7,7 +7,7 @@ metadata:
     tekton.dev/pipelines.minVersion: 0.12.1
     tekton.dev/tags: image-build, konflux
   labels:
-    app.kubernetes.io/version: 0.10.7
+    app.kubernetes.io/version: 0.11.0
     build.appstudio.redhat.com/build_type: docker
 spec:
   description: |-
@@ -83,6 +83,10 @@ spec:
       default: .
     - name: CONTEXTUALIZE_SBOM
       description: Determines if SBOM will be contextualized.
+      type: string
+      default: "true"
+    - name: CONTEXTUALIZE_SBOM_BUILDER
+      description: Flag to enable builder content scanning for SBOM contextualization.
       type: string
       default: "true"
     - name: DOCKERFILE
@@ -351,6 +355,8 @@ spec:
         value: $(params.CONTEXT)
       - name: CONTEXTUALIZE_SBOM
         value: $(params.CONTEXTUALIZE_SBOM)
+      - name: CONTEXTUALIZE_SBOM_BUILDER
+        value: $(params.CONTEXTUALIZE_SBOM_BUILDER)
       - name: HERMETIC
         value: $(params.HERMETIC)
       - name: IMAGE
@@ -416,7 +422,7 @@ spec:
           readOnly: true
           subPath: ca-bundle.crt
     - name: build
-      image: quay.io/konflux-ci/konflux-build-cli:latest@sha256:a48645cf2932d3e2bad76af97c37a1b294bad6a785cd610709c8ee017e8bef19
+      image: quay.io/konflux-ci/konflux-build-cli:latest@sha256:597be392b40bc799a13a4ddae3586ba2643ab9e30fd90feac571800a3b82d029
       args:
         - --build-args
         - $(params.BUILD_ARGS[*])
@@ -587,6 +593,13 @@ spec:
           rhsm_args+=(--rhsm-mount-ca-certs="$RHSM_MOUNT_CA_CERTS")
         fi
 
+        # Prepare SBOM contextualization args
+        contextualization_args=()
+        if [ "${CONTEXTUALIZE_SBOM_BUILDER}" == "true" ]; then
+          contextualization_args+=(--builder-metadata-output=/shared/builder-metadata.json
+            --buildprobe-output=/shared/buildprobe-metadata.json)
+        fi
+
         # Prevent ShellCheck from giving a warning because 'image' is defined and 'IMAGE' is not.
         declare IMAGE
 
@@ -622,6 +635,7 @@ spec:
           --prefetch-output-mount /cachi2/output
           "${security_args[@]}"
           "${rhsm_args[@]}"
+          "${contextualization_args[@]}"
           --containerfile-json-output /shared/parsed_dockerfile.json
           --resolved-base-images-output /shared/base_images_digests
           --no-cache
@@ -822,7 +836,7 @@ spec:
       securityContext:
         runAsUser: 0
     - name: prepare-sboms
-      image: quay.io/konflux-ci/mobster:1.2.1-1782136886@sha256:1374bc35c71781987cce00ef5efe2be42923f83def19b60a570e947189b90d15
+      image: quay.io/konflux-ci/mobster:2.1.0@sha256:6cdd0e272ed44a0e8a2f2f941d1906996595834d5f1fb830ba47b6706f1e1797
       args:
         - --additional-base-images
         - $(params.ADDITIONAL_BASE_IMAGES[*])
@@ -882,6 +896,22 @@ spec:
           --base-image-digest-file "/shared/base_images_digests"
         )
 
+        # Add metadata to the Mobster args if provided
+        metadata_path="/shared/buildprobe-metadata.json"
+        builder_metadata_path="/shared/builder-metadata.json"
+        if [ -f "$metadata_path" ]; then
+          if [ ${#ADDITIONAL_BASE_IMAGES[@]} -gt 0 ]; then
+            # Add ADDITIONAL_BASE_IMAGES to builder-metadata.json at .extra_images
+            additional_images_json=$(printf '%s\n' "${ADDITIONAL_BASE_IMAGES[@]}" | jq -R . | jq -s .)
+
+            jq --argjson new_images "$additional_images_json" \
+              '.extra_images = ((.extra_images // []) + $new_images)' \
+              "$metadata_path" >"${metadata_path}.tmp" && mv "${metadata_path}.tmp" "$metadata_path"
+          fi
+          mobster_args+=(--metadata-path "$metadata_path")
+          mobster_args+=(--build-metadata-path "$builder_metadata_path")
+        fi
+
         if [ -f "/var/workdir/sbom-source.json" ]; then
           mobster_args+=(--from-syft "/var/workdir/sbom-source.json")
         fi
@@ -893,10 +923,6 @@ spec:
         if [ -n "${TARGET_STAGE}" ]; then
           mobster_args+=(--dockerfile-target "${TARGET_STAGE}")
         fi
-
-        for ADDITIONAL_BASE_IMAGE in "${ADDITIONAL_BASE_IMAGES[@]}"; do
-          mobster_args+=(--additional-base-image "$ADDITIONAL_BASE_IMAGE")
-        done
 
         if [ "${CONTEXTUALIZE_SBOM}" == "true" ] && [ "${HERMETIC}" == "false" ]; then
           mobster_args+=(--contextualize)
