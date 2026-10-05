@@ -11,6 +11,14 @@ If that's not something you ever plan to do, consider removing this section.
 
 *Nothing yet.*
 
+## 0.11.0
+
+### Changed
+
+- Workspace prefetch directory `$(workspaces.source.path)/cachi2` is now `$(workspaces.source.path)/prefetch`.
+
+Requires `buildah` >= 0.14.0 and `source-build` >= 0.4.0
+
 ## 0.10.4
 
 <!-- Hermeto's minor reflects a Python version bump -> does not warrant a task minor version bump. -->
