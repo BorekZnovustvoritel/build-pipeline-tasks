@@ -13,10 +13,18 @@ spec:
       description: "The name of the secret containing the kubeconfig to access the target cluster."
     - name: snapshot-type
       type: string
-      description: 'type of the snapshot, for example, group or component'
+      description: "type of the snapshot, for example, group or component"
     - name: component-names
       type: string
-      description: 'comma seperated name of the components to be updated'
+      description: "comma seperated name of the components to be updated"
+    - name: git-url
+      type: string
+      default: "https://github.com/konflux-ci/container-build-catalog.git"
+      description: The URL of the repository to clone
+    - name: git-revision
+      type: string
+      default: main
+      description: The revision of the repository to checkout
   volumes:
     - name: konflux-ci-secrets-volume
       secret:
@@ -45,9 +53,9 @@ spec:
         - name: SNAPSHOT
           value: $(params.SNAPSHOT)
         - name: GIT_URL
-          value: "https://github.com/konflux-ci/container-build-catalog.git"
+          value: $(params.git-url)
         - name: GIT_REVISION
-          value: "main"
+          value: $(params.git-revision)
       script: |
         #!/bin/bash
         set -euo pipefail
@@ -65,7 +73,7 @@ spec:
         git clone "${GIT_URL}" /workspace/source
         cd /workspace/source
         git checkout "${GIT_REVISION}"
-        
+
         cd e2e-tests/
         go mod download
         go run createBundle.go "${SNAPSHOT}" "$(params.snapshot-type)" "$(params.component-names)"
