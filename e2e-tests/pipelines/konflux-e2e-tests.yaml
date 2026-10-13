@@ -67,6 +67,10 @@ spec:
           value:  $(tasks.prepare-e2e.results.snapshot-type)
         - name: component-names
           value: $(tasks.prepare-e2e.results.component-names)
+        - name: git-url
+          value: $(tasks.prepare-e2e.results.git-url)
+        - name: git-revision
+          value: $(tasks.prepare-e2e.results.git-revision)
     - name: provision-kind-cluster
       runAfter:
         - prepare-e2e
