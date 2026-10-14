@@ -216,6 +216,7 @@ func createBuildPipelineBundle(pipelineName constants.BuildPipelineType) (string
 
 	pipelineObject := tektonObj.(*tektonpipeline.Pipeline)
 
+	var taskNames []string
 	for i := range pipelineObject.PipelineSpec().Tasks {
 		t := &pipelineObject.PipelineSpec().Tasks[i]
 		taskName := ""
@@ -229,6 +230,7 @@ func createBuildPipelineBundle(pipelineName constants.BuildPipelineType) (string
 			if param.Name == "bundle" {
 				if bundle, ok := updatedTaskBundleMap[taskName]; ok {
 					t.TaskRef.Params[k].Value = *tektonpipeline.NewStructuredValues(bundle)
+					taskNames = append(taskNames, taskName)
 				}
 			}
 		}
@@ -236,6 +238,10 @@ func createBuildPipelineBundle(pipelineName constants.BuildPipelineType) (string
 
 	if newPipelineYaml, err = yaml.Marshal(pipelineObject); err != nil {
 		return "", fmt.Errorf("error when marshalling a new pipeline to YAML: %v", err)
+	}
+
+	if newPipelineYaml, err = applyTaskMigrations(newPipelineYaml, taskNames); err != nil {
+		return "", fmt.Errorf("error when applying task migrations to pipeline %s: %v", pipelineName, err)
 	}
 
 	tag := fmt.Sprintf("%d-%s", time.Now().Unix(), util.GenerateRandomString(4))
