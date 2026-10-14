@@ -76,4 +76,4 @@ spec:
 
         cd e2e-tests/
         go mod download
-        go run createBundle.go "${SNAPSHOT}" "$(params.snapshot-type)" "$(params.component-names)"
+        go run . "${SNAPSHOT}" "$(params.snapshot-type)" "$(params.component-names)"
