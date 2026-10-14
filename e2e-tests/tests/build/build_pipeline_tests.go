@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	conforma "github.com/conforma/crds/api/v1alpha1"
 	"github.com/devfile/library/v2/pkg/util"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	appservice "github.com/konflux-ci/application-api/api/v1alpha1"
@@ -13,6 +14,8 @@ import (
 	"github.com/konflux-ci/e2e-tests/pkg/constants"
 	"github.com/konflux-ci/e2e-tests/pkg/framework"
 	"github.com/konflux-ci/e2e-tests/pkg/utils/build"
+	"github.com/konflux-ci/e2e-tests/pkg/utils/contract"
+	integrationApi "github.com/konflux-ci/integration-service/api/v1beta2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openshift/library-go/pkg/image/reference"
@@ -34,7 +37,9 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 			var componentName string
 			var component *appservice.Component
 			var scenario TestScenarioSpec
-			var plr *pipeline.PipelineRun
+			var buildPipelineRun *pipeline.PipelineRun
+			var snapshot *appservice.Snapshot
+			var integrationTestScenario *integrationApi.IntegrationTestScenario
 
 			BeforeAll(func() {
 				f, err = framework.NewFramework(fmt.Sprintf("build-e2e-%s", scenarioName))
@@ -51,6 +56,22 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 
 				scenario = GetScenario(scenarioName)
 				GinkgoWriter.Printf("RUNNING SCENARIO: %s\n", scenario.Name)
+
+				if scenario.Name != "sample-python-basic-symlink" {
+					defaultECP, err := f.AsKubeAdmin.TektonController.GetEnterpriseContractPolicy("default", "enterprise-contract-service")
+					Expect(err).NotTo(HaveOccurred())
+					ecpSource := conforma.Source{
+						Config: &conforma.SourceConfig{
+							Include: []string{"@redhat"},
+							Exclude: scenario.ConformaPolicyExclusions,
+						},
+					}
+					ecpSpec := contract.PolicySpecWithSource(defaultECP.Spec, ecpSource)
+					_, err = f.AsKubeAdmin.TektonController.CreateEnterpriseContractPolicy(ecPolicyName, testNamespace, ecpSpec)
+					Expect(err).ShouldNot(HaveOccurred())
+					integrationTestScenario, err = CreateIntegrationTestScenario(f.AsKubeAdmin.IntegrationController, "", applicationName, testNamespace, itsGitURL, itsGitRevision, itsPipelinePathInRepo, []string{"application"}, ecPolicyName)
+					Expect(err).ShouldNot(HaveOccurred())
+				}
 			})
 
 			AfterAll(func() {
@@ -90,58 +111,58 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 			It("triggers a PipelineRun", func() {
 				timeout := 5 * time.Minute
 				Eventually(func() error {
-					plr, err = f.AsKubeAdmin.HasController.GetComponentPipelineRun(componentName, applicationName, testNamespace, "")
+					buildPipelineRun, err = f.AsKubeAdmin.HasController.GetComponentPipelineRun(componentName, applicationName, testNamespace, "")
 					if err != nil {
 						GinkgoWriter.Printf("PipelineRun has not been created yet for the component %s/%s\n", testNamespace, componentName)
 						return err
 					}
-					if !plr.HasStarted() {
-						return fmt.Errorf("pipelinerun %s/%s hasn't started yet", plr.GetNamespace(), plr.GetName())
+					if !buildPipelineRun.HasStarted() {
+						return fmt.Errorf("pipelinerun %s/%s hasn't started yet", buildPipelineRun.GetNamespace(), buildPipelineRun.GetName())
 					}
 					return nil
 				}, timeout, constants.PipelineRunPollingInterval).Should(Succeed(), fmt.Sprintf("timed out when waiting for the PipelineRun to start for the component %s/%s", componentName, testNamespace))
 			})
 			It("the PipelineRun should eventually finish", func() {
-				if scenario.DefaultBranch == "symlink" {
+				if scenario.Name == "sample-python-basic-symlink" {
 					var podLogs string
 					Eventually(func() bool {
-						plr, err = f.AsKubeAdmin.HasController.GetComponentPipelineRun(componentName, applicationName, testNamespace, "")
+						buildPipelineRun, err = f.AsKubeAdmin.HasController.GetComponentPipelineRun(componentName, applicationName, testNamespace, "")
 						if err != nil {
 							GinkgoWriter.Printf("failed to get the pipelinerun for the component %s/%s\n", testNamespace, componentName)
 							return false
 						}
-						prReason := plr.GetStatusCondition().GetCondition(apis.ConditionSucceeded).GetReason()
+						prReason := buildPipelineRun.GetStatusCondition().GetCondition(apis.ConditionSucceeded).GetReason()
 						if prReason != "Failed" {
 							GinkgoWriter.Printf("current pipelinerun reason: %v\n", prReason)
 							return false
 						}
-						podLogs, err = GetPipelineRunPodLogs(f.AsKubeAdmin.CommonController, plr.Name, testNamespace)
+						podLogs, err = GetPipelineRunPodLogs(f.AsKubeAdmin.CommonController, buildPipelineRun.Name, testNamespace)
 						return prReason == "Failed" && err == nil && strings.Contains(podLogs, "symlink check: found 1 symlink(s) pointing outside the directory")
 					}, 5*time.Minute, constants.PipelineRunPollingInterval).Should(BeTrue(), "symlink pipelinerun is not failed with correct error message as expected")
 				} else {
 					Expect(f.AsKubeAdmin.HasController.WaitForComponentPipelineToBeFinished(component, "", "", "",
-						f.AsKubeAdmin.TektonController, &has.RetryOptions{Retries: 2, Always: true}, plr)).To(Succeed())
+						f.AsKubeAdmin.TektonController, &has.RetryOptions{Retries: 2, Always: true}, buildPipelineRun)).To(Succeed())
 				}
 			})
 			It("should push Dockerfile to registry", func() {
-				if scenario.DefaultBranch == "symlink" || scenario.PipelineBundleName == constants.DockerBuildOciTAMin || scenario.PipelineBundleName == constants.FbcBuilder {
+				if scenario.Name == "sample-python-basic-symlink" || scenario.PipelineBundleName == constants.DockerBuildOciTAMin || scenario.PipelineBundleName == constants.FbcBuilder {
 					Skip("Skipping push Dockerfile to registry validation, it is not applicable here")
 					return
 				}
-				EnsureOriginalDockerfileIsPushed(f.AsKubeAdmin, plr)
+				EnsureOriginalDockerfileIsPushed(f.AsKubeAdmin, buildPipelineRun)
 			})
 			It("should validate tekton taskrun test results", func() {
-				if scenario.DefaultBranch == "symlink" {
+				if scenario.Name == "sample-python-basic-symlink" {
 					Skip("Skipping tekton task results validation, not applicable")
 					return
 				}
-				Expect(build.ValidateBuildPipelineTestResults(plr, f.AsKubeAdmin.CommonController.KubeRest(), scenario.PipelineBundleName == constants.FbcBuilder, scenario.PipelineBundleName == constants.DockerBuildOciTAMin)).To(Succeed())
+				Expect(build.ValidateBuildPipelineTestResults(buildPipelineRun, f.AsKubeAdmin.CommonController.KubeRest(), scenario.PipelineBundleName == constants.FbcBuilder, scenario.PipelineBundleName == constants.DockerBuildOciTAMin)).To(Succeed())
 			})
 			It("floating tags are created successfully", func() {
 				if !scenario.CheckAdditionalTags {
 					Skip(fmt.Sprintf("floating tag validation is not needed for: %s", scenarioName))
 				}
-				builtImage := build.GetBinaryImage(plr)
+				builtImage := build.GetBinaryImage(buildPipelineRun)
 				Expect(builtImage).ToNot(BeEmpty(), "built image url is empty")
 				builtImageRef, err := reference.Parse(builtImage)
 				Expect(err).ShouldNot(HaveOccurred(),
@@ -154,10 +175,10 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 				}
 			})
 			It("image manifest mediaType is correct", func() {
-				if scenario.DefaultBranch == "symlink" {
+				if scenario.Name == "sample-python-basic-symlink" {
 					Skip(fmt.Sprintf("mediaType validation is not required for scenario: %s", scenarioName))
 				} else {
-					builtImage := build.GetBinaryImage(plr)
+					builtImage := build.GetBinaryImage(buildPipelineRun)
 					switch scenario.ManifestMediaType {
 					case "docker":
 						if scenario.PipelineBundleName == constants.FbcBuilder || scenario.PipelineBundleName == constants.DockerBuildMultiPlatformOciTa {
@@ -185,7 +206,7 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 				if scenario.Name == "sample-python-basic-oci-docker-build" {
 					var image *v1.ConfigFile
 					Eventually(func() error {
-						image, err = build.ImageFromPipelineRun(plr)
+						image, err = build.ImageFromPipelineRun(buildPipelineRun)
 						return err
 					}, time.Minute*2, time.Second*10).Should(Succeed(), "timed out while trying fetch image config")
 
@@ -204,7 +225,7 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 					Skip("Hermetic build is not enabled, skipping the test")
 				}
 
-				taskRun, err := f.AsKubeAdmin.TektonController.GetTaskRunFromPipelineRun(f.AsKubeAdmin.CommonController.KubeRest(), plr, "build-container")
+				taskRun, err := f.AsKubeAdmin.TektonController.GetTaskRunFromPipelineRun(f.AsKubeAdmin.CommonController.KubeRest(), buildPipelineRun, "build-container")
 				Expect(err).NotTo(HaveOccurred())
 
 				var sbomBlobUrl string
@@ -239,13 +260,13 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 					return
 				}
 
-				isSourceBuildEnabled := build.IsSourceBuildEnabled(plr)
+				isSourceBuildEnabled := build.IsSourceBuildEnabled(buildPipelineRun)
 				GinkgoWriter.Printf("Source build is enabled: %v\n", isSourceBuildEnabled)
 				if !isSourceBuildEnabled {
 					Skip("Skipping source image check since it is not enabled in the pipeline")
 				}
 
-				binaryImage := build.GetBinaryImage(plr)
+				binaryImage := build.GetBinaryImage(buildPipelineRun)
 				if binaryImage == "" {
 					Fail("Failed to get the binary image url from pipelinerun")
 				}
@@ -271,7 +292,40 @@ var _ = framework.BuildSuiteDescribe("Build pipeline E2E test", Label("build-pip
 				Expect(tagExists).To(BeTrue(),
 					fmt.Sprintf("cannot find source container image %s", srcImage))
 
-				CheckSourceImage(srcImage, scenario.GitURL, scenario.PipelineBundleName, f.AsKubeAdmin, plr)
+				CheckSourceImage(srcImage, scenario.GitURL, scenario.PipelineBundleName, f.AsKubeAdmin, buildPipelineRun)
+			})
+			It("check conforma pipelinerun succedded", func() {
+				if scenario.Name == "sample-python-basic-symlink" {
+					Skip(fmt.Sprintf("conforma pipeline validation is not required for scenario: %s", scenarioName))
+				}
+				snapshot, err = f.AsKubeDeveloper.IntegrationController.WaitForSnapshotToGetCreated("", "", componentName, testNamespace)
+				Expect(err).ShouldNot(HaveOccurred())
+				_, err = f.AsKubeDeveloper.IntegrationController.WaitForIntegrationPipelineToGetStarted(integrationTestScenario.Name, snapshot.Name, testNamespace)
+				Expect(err).ShouldNot(HaveOccurred())
+				err = f.AsKubeAdmin.IntegrationController.WaitForIntegrationPipelineToBeFinished(integrationTestScenario, snapshot, testNamespace)
+				// Print the logs in case the conforma pipeline run fails
+				if err != nil {
+					pipelineRun, err1 := f.AsKubeDeveloper.IntegrationController.GetIntegrationPipelineRun(integrationTestScenario.Name, snapshot.Name, testNamespace)
+					if err1 != nil {
+						GinkgoWriter.Printf("failed to get integration pipelinerun with error: %v\n", err1)
+					}
+					for _, chr := range pipelineRun.Status.ChildReferences {
+						if strings.Contains(chr.PipelineTaskName, "verify") {
+							logs, err2 := f.AsKubeAdmin.TektonController.GetTaskRunLogs(pipelineRun.Name, chr.PipelineTaskName, testNamespace)
+							if err2 != nil {
+								GinkgoWriter.Printf("skipping: %s: %s\n", chr.PipelineTaskName, err2)
+								continue
+							}
+							for container, out := range logs {
+								// full log is too long, print only step details report container log for debugging
+								if container == "step-detailed-report" {
+									GinkgoWriter.Printf("=== %s / %s ===\n%s\n", chr.PipelineTaskName, container, out)
+								}
+							}
+						}
+					}
+				}
+				Expect(err).ShouldNot(HaveOccurred(), fmt.Sprintf("conforma pipelinerun failed with: %v", err))
 			})
 		})
 
