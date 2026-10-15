@@ -11,6 +11,11 @@ If that's not something you ever plan to do, consider removing this section.
 
 *Nothing yet.*
 
+## 0.10.4
+
+<!-- Hermeto's minor reflects a Python version bump -> does not warrant a task minor version bump. -->
+- Hermeto release - <https://github.com/hermetoproject/hermeto/releases/tag/0.63.0>
+
 ## 0.10.3
 
 - Hermeto release - <https://github.com/hermetoproject/hermeto/releases/tag/0.62.0>
