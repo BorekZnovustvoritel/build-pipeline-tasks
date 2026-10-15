@@ -169,17 +169,6 @@ func getDefaultPipelineBundleRef(pipelineName string) (string, error) {
 	}
 }
 
-func getNewBundle(taskBundle string) string {
-	parts := strings.Split(taskBundle, "/")
-	last := parts[len(parts)-1]
-	namePart := strings.SplitN(last, ":", 2)[0]
-	taskName := strings.TrimPrefix(namePart, "task-")
-	if bundle, ok := updatedTaskBundleMap[taskName]; ok {
-		return bundle
-	}
-	return ""
-}
-
 func fetchListOfTasksInEachPipeline() error {
 	var pipelineBundle string
 	var err error
@@ -227,13 +216,21 @@ func createBuildPipelineBundle(pipelineName constants.BuildPipelineType) (string
 
 	pipelineObject := tektonObj.(*tektonpipeline.Pipeline)
 
+	var taskNames []string
 	for i := range pipelineObject.PipelineSpec().Tasks {
 		t := &pipelineObject.PipelineSpec().Tasks[i]
+		taskName := ""
+		for _, param := range t.TaskRef.Params {
+			if param.Name == "name" {
+				taskName = param.Value.StringVal
+			}
+		}
+
 		for k, param := range t.TaskRef.Params {
 			if param.Name == "bundle" {
-				newBundle := getNewBundle(param.Value.StringVal)
-				if newBundle != "" {
-					t.TaskRef.Params[k].Value = *tektonpipeline.NewStructuredValues(newBundle)
+				if bundle, ok := updatedTaskBundleMap[taskName]; ok {
+					t.TaskRef.Params[k].Value = *tektonpipeline.NewStructuredValues(bundle)
+					taskNames = append(taskNames, taskName)
 				}
 			}
 		}
@@ -241,6 +238,10 @@ func createBuildPipelineBundle(pipelineName constants.BuildPipelineType) (string
 
 	if newPipelineYaml, err = yaml.Marshal(pipelineObject); err != nil {
 		return "", fmt.Errorf("error when marshalling a new pipeline to YAML: %v", err)
+	}
+
+	if newPipelineYaml, err = applyTaskMigrations(newPipelineYaml, taskNames); err != nil {
+		return "", fmt.Errorf("error when applying task migrations to pipeline %s: %v", pipelineName, err)
 	}
 
 	tag := fmt.Sprintf("%d-%s", time.Now().Unix(), util.GenerateRandomString(4))
