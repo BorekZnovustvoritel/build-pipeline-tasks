@@ -11,6 +11,15 @@ If that's not something you ever plan to do, consider removing this section.
 
 *Nothing yet.*
 
+## 0.4.0
+
+### Changed
+
+- Renamed Trusted Artifact parameter `CACHI2_ARTIFACT` to `PREFETCH_ARTIFACT`.
+- Renamed Trusted Artifact path `/var/workdir/cachi2` to `/var/workdir/prefetch`.
+
+Recommended to use `prefetch-dependencies-oci-ta` >= 0.11.0 for naming consistency of the parameter.
+
 ## 0.3.2
 
 ### Fixed

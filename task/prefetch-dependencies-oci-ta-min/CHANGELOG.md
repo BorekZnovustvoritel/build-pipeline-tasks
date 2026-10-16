@@ -11,6 +11,16 @@ If that's not something you ever plan to do, consider removing this section.
 
 *Nothing yet.*
 
+## 0.11.0
+
+### Changed
+
+- Renamed Trusted Artifact result `CACHI2_ARTIFACT` to `PREFETCH_ARTIFACT`.
+- Renamed Trusted Artifact path `/var/workdir/cachi2` to `/var/workdir/prefetch`.
+
+Recommended to use `buildah-oci-ta` >= 0.14.0 and `source-build-oci-ta` >= 0.4.0 for naming
+consistency of the result.
+
 ## 0.10.4
 
 <!-- Hermeto's minor reflects a Python version bump -> does not warrant a task minor version bump. -->
