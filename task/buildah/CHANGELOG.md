@@ -11,6 +11,12 @@ If that's not something you ever plan to do, consider removing this section.
 
 *Nothing yet.*
 
+## 0.14.2
+
+### Fixed
+
+- Mobster version updated, contains a fix for possible dangling SPDX relationships.
+
 ## 0.14.1
 
 ### Changed
